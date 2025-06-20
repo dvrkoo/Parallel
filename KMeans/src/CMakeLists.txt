@@ -1,5 +1,5 @@
 # Add the executable
-add_executable(KMeans main.cpp SequentialKMeans.cpp ParallelKMeans.cpp)
+add_executable(KMeans main.cpp SequentialKMeans.cpp ParallelKMeans.cpp dataset.cpp)
 
 # Find and link OpenMP if needed
 find_package(OpenMP)
