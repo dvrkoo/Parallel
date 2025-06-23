@@ -13,3 +13,5 @@ _deps
 CMakeUserPresets.json
 
 KMeans/.cache/*
+KMeans/data/*
+KernelImageProcessing/.cache/*
