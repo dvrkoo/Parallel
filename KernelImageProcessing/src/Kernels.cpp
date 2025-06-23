@@ -3,6 +3,7 @@
 namespace Kernels {
 
 std::vector<float> PrewittX() { return {-1, 0, 1, -1, 0, 1, -1, 0, 1}; }
+std::vector<float> PrewittY() { return {-1, -1, -1, 0, 0, 0, 1, 1, 1}; }
 
 std::vector<float> Gaussian5x5() {
   // Divide each by 256

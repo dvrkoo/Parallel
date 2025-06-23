@@ -8,25 +8,52 @@ CpuConvolution::CpuConvolution(const cv::Mat &kernel)
 }
 
 cv::Mat CpuConvolution::apply(const cv::Mat &input) const {
-  CV_Assert(input.channels() == 1);
-  cv::Mat output = cv::Mat::zeros(input.size(), input.type());
+  // Output should be floating point to preserve negative values
+  cv::Mat output = cv::Mat::zeros(input.size(), CV_32FC(input.channels()));
+  int channels = input.channels();
 
-  for (int y = 0; y < input.rows; ++y) {
-    for (int x = 0; x < input.cols; ++x) {
-      float sum = 0;
-      for (int m = 0; m < kRows_; ++m) {
-        int yy = y + (m - kCenterY_);
-        if (yy < 0 || yy >= input.rows)
-          continue;
-        for (int n = 0; n < kCols_; ++n) {
-          int xx = x + (n - kCenterX_);
-          if (xx < 0 || xx >= input.cols)
+  if (channels == 1) {
+    for (int y = 0; y < input.rows; ++y) {
+      for (int x = 0; x < input.cols; ++x) {
+        float sum = 0.0f;
+        for (int m = 0; m < kRows_; ++m) {
+          int yy = y + m - kCenterY_;
+          if (yy < 0 || yy >= input.rows)
             continue;
-          sum += input.at<uchar>(yy, xx) * kernel_.at<float>(m, n);
+          for (int n = 0; n < kCols_; ++n) {
+            int xx = x + n - kCenterX_;
+            if (xx < 0 || xx >= input.cols)
+              continue;
+            sum += input.at<uchar>(yy, xx) * kernel_.at<float>(m, n);
+          }
         }
+        output.at<float>(y, x) = sum;
       }
-      output.at<uchar>(y, x) = cv::saturate_cast<uchar>(sum);
+    }
+  } else if (channels == 3) {
+    for (int y = 0; y < input.rows; ++y) {
+      for (int x = 0; x < input.cols; ++x) {
+        cv::Vec3f sum(0, 0, 0);
+        for (int m = 0; m < kRows_; ++m) {
+          int yy = y + m - kCenterY_;
+          if (yy < 0 || yy >= input.rows)
+            continue;
+          for (int n = 0; n < kCols_; ++n) {
+            int xx = x + n - kCenterX_;
+            if (xx < 0 || xx >= input.cols)
+              continue;
+            cv::Vec3b pixel = input.at<cv::Vec3b>(yy, xx);
+            float kval = kernel_.at<float>(m, n);
+            sum[0] += pixel[0] * kval;
+            sum[1] += pixel[1] * kval;
+            sum[2] += pixel[2] * kval;
+          }
+        }
+        // FIX: Do not take absolute value. Store the raw Vec3f sum.
+        output.at<cv::Vec3f>(y, x) = sum;
+      }
     }
   }
+
   return output;
 }
