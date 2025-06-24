@@ -39,8 +39,7 @@ int main(int argc, char **argv) {
   std::filesystem::create_directories("results");
 
   // The sample sizes to test
-  std::vector<int> n_list = {100,     1'000,     10'000,
-                             100'000, 1'000'000, 10'000'000};
+  std::vector<int> n_list = {1'000'000, 10'000'000};
 
   std::vector<int> k_list = {3, 5, 10, 15, 20, 25, 30, 40, 50};
 
@@ -96,6 +95,7 @@ int main(int argc, char **argv) {
         // 4) Log to CSV
         out << n_samples << "," << k << "," << nt << "," << seq_mean << ","
             << par_mean << "," << speedup << "\n";
+        out.flush();
       }
 
       std::cout << "Done: n=" << n_samples << ", k=" << k

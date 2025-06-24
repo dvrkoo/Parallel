@@ -2,83 +2,109 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <numeric>
 #include <omp.h>
 #include <random>
 
 ParallelKMeans::ParallelKMeans(int k, int max_iters, double tol)
-    : k(k), max_iters(max_iters), tol(tol) {}
+    : k_(k), max_iters_(max_iters), tol_(tol), n_features_(0) {}
 
 void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
-  int n_samples = data.size();
-  int n_features = data[0].size();
-  // Set random seed for reproducibility
-  std::mt19937 rng(12345);
+  if (data.empty()) {
+    return;
+  }
+  size_t n_samples = data.size();
+  n_features_ = data[0].size();
+
+  // --- OPTIMIZATION 1: Flatten input data for cache-friendly access ---
+  // This is done once. All subsequent operations benefit from contiguous
+  // memory.
+  std::vector<double> data_flat(n_samples * n_features_);
+#pragma omp parallel for
+  for (size_t i = 0; i < n_samples; ++i) {
+    for (size_t j = 0; j < n_features_; ++j) {
+      data_flat[i * n_features_ + j] = data[i][j];
+    }
+  }
+
+  // --- Initialize centroids randomly (as requested) ---
+  centroids_.resize(k_ * n_features_);
+  std::mt19937 rng(12345); // For reproducibility
   std::uniform_int_distribution<size_t> dist(0, n_samples - 1);
-  // Initialize centroids randomly
-  centroids =
-      std::vector<std::vector<double>>(k, std::vector<double>(n_features));
-  for (int i = 0; i < k; ++i) {
-    // Choose a not so random sample from the data
-    centroids[i] = data[dist(rng)];
+  for (int i = 0; i < k_; ++i) {
+    size_t random_sample_idx = dist(rng);
+    const double *sample_start = &data_flat[random_sample_idx * n_features_];
+    double *centroid_start = &centroids_[i * n_features_];
+    std::copy(sample_start, sample_start + n_features_, centroid_start);
   }
 
   std::vector<int> labels(n_samples);
 
-  for (int iter = 0; iter < max_iters; ++iter) {
-// ==== Assignment step (Parallel) ====
+  for (int iter = 0; iter < max_iters_; ++iter) {
+    // ==== Assignment step (Parallel) ====
+    // This part remains conceptually the same but is now faster due to
+    // better data layout and the squared distance optimization.
 #pragma omp parallel for
-    for (int i = 0; i < n_samples; ++i) {
-      labels[i] = closest_centroid(data[i]);
+    for (size_t i = 0; i < n_samples; ++i) {
+      const double *point = &data_flat[i * n_features_];
+      double min_dist_sq = std::numeric_limits<double>::max();
+      int best_label = -1;
+      for (int c = 0; c < k_; ++c) {
+        const double *centroid = &centroids_[c * n_features_];
+        // --- OPTIMIZATION 2: Use squared distance to avoid expensive sqrt ---
+        double dist_sq = squared_euclidean_distance(point, centroid);
+        if (dist_sq < min_dist_sq) {
+          min_dist_sq = dist_sq;
+          best_label = c;
+        }
+      }
+      labels[i] = best_label;
     }
 
     // Save old centroids for convergence check
-    std::vector<std::vector<double>> old_centroids = centroids;
+    std::vector<double> old_centroids_flat = centroids_;
 
-    // ==== Update step (Parallel Reduction) ====
-    std::vector<std::vector<double>> new_centroids(
-        k, std::vector<double>(n_features, 0.0));
-    std::vector<int> counts(k, 0);
+    // ==== Update step (Efficient Parallel Reduction) ====
+    std::vector<double> new_centroids_flat(k_ * n_features_, 0.0);
+    std::vector<int> counts(k_, 0);
 
-#pragma omp parallel
-    {
-      std::vector<std::vector<double>> local_sums(
-          k, std::vector<double>(n_features, 0.0));
-      std::vector<int> local_counts(k, 0);
-
-#pragma omp for nowait
-      for (int i = 0; i < n_samples; ++i) {
-        int cluster = labels[i];
-        for (int j = 0; j < n_features; ++j) {
-          local_sums[cluster][j] += data[i][j];
-        }
-        local_counts[cluster]++;
-      }
-
-// Merge local sums into global sums
-#pragma omp critical
-      {
-        for (int c = 0; c < k; ++c) {
-          for (int j = 0; j < n_features; ++j) {
-            new_centroids[c][j] += local_sums[c][j];
-          }
-          counts[c] += local_counts[c];
+    // --- OPTIMIZATION 3: Use OpenMP reduction for efficient, scalable
+    // aggregation --- This is the most significant parallel optimization. It
+    // avoids the serial bottleneck of a '#pragma omp critical' section. Note:
+    // Pointers are used for the reduction array section, which is a common and
+    // portable way to handle array reductions in OpenMP.
+    auto *new_centroids_ptr = new_centroids_flat.data();
+    auto *counts_ptr = counts.data();
+#pragma omp parallel for reduction(+ : new_centroids_ptr[ : k_ * n_features_]) \
+    reduction(+ : counts_ptr[ : k_])
+    for (size_t i = 0; i < n_samples; ++i) {
+      int cluster = labels[i];
+      if (cluster != -1) {
+        counts_ptr[cluster]++;
+        for (size_t j = 0; j < n_features_; ++j) {
+          new_centroids_ptr[cluster * n_features_ + j] +=
+              data_flat[i * n_features_ + j];
         }
       }
     }
 
-    // Finalize centroids
-    for (int c = 0; c < k; ++c) {
-      if (counts[c] == 0)
-        continue;
-      for (int j = 0; j < n_features; ++j) {
-        new_centroids[c][j] /= counts[c];
+    // Finalize centroids by dividing by counts
+#pragma omp parallel for
+    for (int c = 0; c < k_; ++c) {
+      if (counts[c] > 0) {
+        for (size_t j = 0; j < n_features_; ++j) {
+          new_centroids_flat[c * n_features_ + j] /= counts[c];
+        }
       }
+      // If a cluster becomes empty, we could re-initialize it.
+      // For now, we leave it, and it will likely be unused.
     }
 
-    centroids = new_centroids;
+    centroids_ = new_centroids_flat;
 
-    if (has_converged(old_centroids))
+    if (has_converged(old_centroids_flat)) {
       break;
+    }
   }
 }
 
@@ -86,27 +112,44 @@ int ParallelKMeans::predict(const std::vector<double> &point) const {
   return closest_centroid(point);
 }
 
-const std::vector<std::vector<double>> &ParallelKMeans::get_centroids() const {
-  return centroids;
+std::vector<std::vector<double>> ParallelKMeans::get_centroids() const {
+  std::vector<std::vector<double>> result(k_, std::vector<double>(n_features_));
+  for (int i = 0; i < k_; ++i) {
+    for (size_t j = 0; j < n_features_; ++j) {
+      result[i][j] = centroids_[i * n_features_ + j];
+    }
+  }
+  return result;
 }
 
-double ParallelKMeans::euclidean_distance(const std::vector<double> &a,
-                                          const std::vector<double> &b) const {
+double ParallelKMeans::squared_euclidean_distance(const double *a,
+                                                  const double *b) const {
   double sum = 0.0;
-  for (size_t i = 0; i < a.size(); ++i) {
+  for (size_t i = 0; i < n_features_; ++i) {
     double diff = a[i] - b[i];
     sum += diff * diff;
   }
-  return std::sqrt(sum);
+  return sum;
+}
+
+double ParallelKMeans::euclidean_distance(const double *a,
+                                          const double *b) const {
+  return std::sqrt(squared_euclidean_distance(a, b));
 }
 
 int ParallelKMeans::closest_centroid(const std::vector<double> &point) const {
-  double min_dist = std::numeric_limits<double>::max();
+  if (centroids_.empty())
+    return -1;
+
+  double min_dist_sq = std::numeric_limits<double>::max();
   int label = -1;
-  for (int i = 0; i < k; ++i) {
-    double dist = euclidean_distance(point, centroids[i]);
-    if (dist < min_dist) {
-      min_dist = dist;
+  const double *point_ptr = point.data();
+
+  for (int i = 0; i < k_; ++i) {
+    const double *centroid_ptr = &centroids_[i * n_features_];
+    double dist_sq = squared_euclidean_distance(point_ptr, centroid_ptr);
+    if (dist_sq < min_dist_sq) {
+      min_dist_sq = dist_sq;
       label = i;
     }
   }
@@ -114,9 +157,12 @@ int ParallelKMeans::closest_centroid(const std::vector<double> &point) const {
 }
 
 bool ParallelKMeans::has_converged(
-    const std::vector<std::vector<double>> &old_centroids) const {
-  for (int i = 0; i < k; ++i) {
-    if (euclidean_distance(old_centroids[i], centroids[i]) > tol) {
+    const std::vector<double> &old_centroids_flat) const {
+  for (int i = 0; i < k_; ++i) {
+    const double *old_c = &old_centroids_flat[i * n_features_];
+    const double *new_c = &centroids_[i * n_features_];
+    // The convergence check MUST use the true distance, not the squared one.
+    if (euclidean_distance(old_c, new_c) > tol_) {
       return false;
     }
   }
