@@ -70,7 +70,6 @@ def plot_3d_clusters(n_samples, k, mode, threads=None, save_fig=False, no_show=F
     # --- 4. Create the Multi-Angle 3D Plot ---
     print("Generating multi-angle 3D plot...")
 
-    # Define the different camera angles we want to see
     views = [
         {"elev": 30, "azim": -60, "title": "Perspective 1"},
         {"elev": 90, "azim": 0, "title": "Top-Down (X-Y Plane)"},
@@ -78,10 +77,14 @@ def plot_3d_clusters(n_samples, k, mode, threads=None, save_fig=False, no_show=F
         {"elev": 0, "azim": -90, "title": "Side View (Y-Z Plane)"},
     ]
 
-    # Create a figure with a 2x2 grid of 3D subplots
-    fig, axes = plt.subplots(2, 2, figsize=(16, 14), subplot_kw={"projection": "3d"})
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(17, 15),  # Slightly increased figure size for more room
+        subplot_kw={"projection": "3d"},
+        constrained_layout=True,
+    )
 
-    # Set a main title for the entire figure
     main_title = f"K-Means Clustering (n={n_samples}, k={k}, mode='{mode}'"
     if threads:
         main_title += f", threads={threads})"
@@ -89,9 +92,7 @@ def plot_3d_clusters(n_samples, k, mode, threads=None, save_fig=False, no_show=F
         main_title += ")"
     fig.suptitle(main_title, fontsize=20)
 
-    # Loop through each subplot and view angle
     for ax, view in zip(axes.flat, views):
-        # Plot the data points
         ax.scatter(
             points[:, 0],
             points[:, 1],
@@ -100,10 +101,8 @@ def plot_3d_clusters(n_samples, k, mode, threads=None, save_fig=False, no_show=F
             cmap="viridis",
             s=10,
             alpha=0.5,
-            zorder=1,  # **CHANGE**: Render points at a lower layer
+            zorder=1,
         )
-
-        # Plot the centroids
         ax.scatter(
             centroids[:, 0],
             centroids[:, 1],
@@ -113,25 +112,23 @@ def plot_3d_clusters(n_samples, k, mode, threads=None, save_fig=False, no_show=F
             s=250,
             edgecolor="black",
             label="Centroids",
-            depthshade=False,  # Make sure the color is pure red
-            zorder=10,  # **CHANGE**: Render centroids on the top layer
+            depthshade=False,
+            zorder=10,
         )
 
-        # Set the camera angle for this specific subplot
         ax.view_init(elev=view["elev"], azim=view["azim"])
 
-        # Set labels and title for the subplot
         ax.set_title(view["title"], fontsize=14)
-        ax.set_xlabel("Feature 1")
-        ax.set_ylabel("Feature 2")
-        ax.set_zlabel("Feature 3")
+
+        # **CHANGE**: Increased labelpad from 10 to 20 to move the axis labels further away.
+        ax.set_xlabel("Feature 1", labelpad=20)
+        ax.set_ylabel("Feature 2", labelpad=20)
+        ax.set_zlabel("Feature 3", labelpad=20)
+
         ax.legend()
         ax.grid(True)
 
     # --- 5. Finalize and Show/Save Plot ---
-    # Adjust layout to prevent titles from overlapping
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # rect makes space for suptitle
-
     if save_fig:
         output_filename = f"results/plots/plot_n{n_samples}_k{k}_{mode}"
         if threads:
