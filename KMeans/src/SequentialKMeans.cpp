@@ -1,4 +1,5 @@
 #include "SequentialKMeans.h"
+#include <algorithm> // For std::copy
 #include <cmath>
 #include <cstdlib>
 #include <limits>
@@ -14,8 +15,7 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
   size_t n_samples = data.size();
   n_features_ = data[0].size();
 
-  // --- OPTIMIZATION 1: Flatten input data for cache-friendly access ---
-  // This one-time cost pays off in every single loop of the algorithm.
+  // --- OPTIMIZATION 1: Flatten input data ---
   std::vector<double> data_flat(n_samples * n_features_);
   for (size_t i = 0; i < n_samples; ++i) {
     for (size_t j = 0; j < n_features_; ++j) {
@@ -34,6 +34,7 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
     std::copy(sample_start, sample_start + n_features_, centroid_start);
   }
 
+  // Use a local variable for labels within the loop
   std::vector<int> labels(n_samples);
 
   for (int iter = 0; iter < max_iters_; ++iter) {
@@ -44,7 +45,6 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
       int best_label = -1;
       for (int c = 0; c < k_; ++c) {
         const double *centroid = &centroids_[c * n_features_];
-        // --- OPTIMIZATION 2: Use squared distance to avoid expensive sqrt ---
         double dist_sq = squared_euclidean_distance(point, centroid);
         if (dist_sq < min_dist_sq) {
           min_dist_sq = dist_sq;
@@ -54,14 +54,12 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
       labels[i] = best_label;
     }
 
-    // Store old centroids for convergence check
     std::vector<double> old_centroids_flat = centroids_;
 
     // ==== Update step ====
     std::vector<double> new_centroids_flat(k_ * n_features_, 0.0);
     std::vector<int> counts(k_, 0);
 
-    // Accumulate sums and counts (benefits from flat data layout)
     for (size_t i = 0; i < n_samples; ++i) {
       int cluster = labels[i];
       if (cluster != -1) {
@@ -73,24 +71,42 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
       }
     }
 
-    // Finalize centroids by dividing by counts
     for (int c = 0; c < k_; ++c) {
       if (counts[c] > 0) {
         for (size_t j = 0; j < n_features_; ++j) {
           new_centroids_flat[c * n_features_ + j] /= counts[c];
         }
       }
-      // Note: A smarter implementation could re-initialize empty clusters.
     }
 
     centroids_ = new_centroids_flat;
 
-    // Check for convergence
     if (has_converged(old_centroids_flat)) {
       break;
     }
   }
+
+  // **CHANGE**: After the loop, run the assignment step one final time to
+  // ensure the assignments correspond to the *final* centroids.
+  assignments_.resize(n_samples);
+  for (size_t i = 0; i < n_samples; ++i) {
+    const double *point = &data_flat[i * n_features_];
+    double min_dist_sq = std::numeric_limits<double>::max();
+    int best_label = -1;
+    for (int c = 0; c < k_; ++c) {
+      const double *centroid = &centroids_[c * n_features_];
+      double dist_sq = squared_euclidean_distance(point, centroid);
+      if (dist_sq < min_dist_sq) {
+        min_dist_sq = dist_sq;
+        best_label = c;
+      }
+    }
+    // Store the final assignment in the member variable
+    assignments_[i] = best_label;
+  }
 }
+
+// ========= NO CHANGES NEEDED FOR THE METHODS BELOW =========
 
 int SequentialKMeans::predict(const std::vector<double> &point) const {
   return closest_centroid(point);
@@ -145,7 +161,6 @@ bool SequentialKMeans::has_converged(
   for (int i = 0; i < k_; ++i) {
     const double *old_c = &old_centroids_flat[i * n_features_];
     const double *new_c = &centroids_[i * n_features_];
-    // The convergence check MUST use the true distance for the tolerance.
     if (euclidean_distance(old_c, new_c) > tol_) {
       return false;
     }

@@ -1,3 +1,5 @@
+// ParallelKMeans.h
+
 #ifndef PARALLEL_KMEANS_H
 #define PARALLEL_KMEANS_H
 
@@ -5,46 +7,38 @@
 
 class ParallelKMeans {
 public:
-  /**
-   * @brief Constructor for ParallelKMeans.
-   * @param k The number of clusters.
-   * @param max_iters The maximum number of iterations.
-   * @param tol The tolerance for convergence.
-   */
+  // Constructor
   ParallelKMeans(int k, int max_iters = 100, double tol = 1e-4);
 
-  /**
-   * @brief Fits the K-Means model to the given data.
-   * @param data The input data, where each inner vector is a sample.
-   */
+  // Main fitting function
   void fit(const std::vector<std::vector<double>> &data);
 
-  /**
-   * @brief Predicts the cluster for a single data point.
-   * @param point The data point to predict.
-   * @return The index of the closest cluster.
-   */
+  // Predict the cluster for a single new point
   int predict(const std::vector<double> &point) const;
 
-  /**
-   * @brief Gets the final cluster centroids.
-   * @return A vector of vectors, where each inner vector is a centroid.
-   */
+  // --- GETTERS (ACCESSORS) ---
+
+  // Get the final cluster centroids (already exists, no changes needed)
   std::vector<std::vector<double>> get_centroids() const;
 
+  // **NEW**: Get the final assignments for each data point
+  // We return a const reference for efficiency (avoids copying the vector).
+  const std::vector<int> &get_assignments() const { return assignments_; }
+
 private:
-  // --- Parameters ---
+  // Parameters
   int k_;
   int max_iters_;
   double tol_;
 
-  // --- Model State ---
+  // Internal state
   size_t n_features_;
-  // Using a flat vector for centroids for better cache performance and easier
-  // OpenMP reductions. Layout: [c0_f0, c0_f1, ..., c1_f0, c1_f1, ...]
+  // Centroids stored in a flat vector for cache efficiency
   std::vector<double> centroids_;
+  // **NEW**: Member variable to store cluster assignments for each point
+  std::vector<int> assignments_;
 
-  // --- Private Helper Methods ---
+  // Helper methods (already exist, no changes needed)
   double squared_euclidean_distance(const double *a, const double *b) const;
   double euclidean_distance(const double *a, const double *b) const;
   int closest_centroid(const std::vector<double> &point) const;

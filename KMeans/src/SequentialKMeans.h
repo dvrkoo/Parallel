@@ -1,3 +1,5 @@
+// SequentialKMeans.h
+
 #ifndef SEQUENTIAL_KMEANS_H
 #define SEQUENTIAL_KMEANS_H
 
@@ -5,38 +7,36 @@
 
 class SequentialKMeans {
 public:
+  // Constructor
   SequentialKMeans(int k, int max_iters = 100, double tol = 1e-4);
 
-  /**
-   * @brief Fits the K-Means model to the given data.
-   * @param data The input data, where each inner vector is a sample.
-   */
+  // Main fitting function
   void fit(const std::vector<std::vector<double>> &data);
 
-  /**
-   * @brief Predicts the cluster for a single data point.
-   * @param point The data point to predict.
-   * @return The index of the closest cluster.
-   */
+  // Predict the cluster for a single new point
   int predict(const std::vector<double> &point) const;
 
-  /**
-   * @brief Gets the final cluster centroids.
-   * @return A vector of vectors, where each inner vector is a centroid.
-   */
+  // --- GETTERS (ACCESSORS) ---
+
+  // Get the final cluster centroids (already exists)
   std::vector<std::vector<double>> get_centroids() const;
 
+  // **NEW**: Get the final assignments for each data point
+  const std::vector<int> &get_assignments() const { return assignments_; }
+
 private:
-  // --- Parameters ---
+  // Parameters
   int k_;
   int max_iters_;
   double tol_;
 
-  // --- Model State ---
+  // Internal state
   size_t n_features_;
-  std::vector<double> centroids_;
+  std::vector<double> centroids_; // Flat vector for centroids
+  // **NEW**: Member variable to store cluster assignments
+  std::vector<int> assignments_;
 
-  // --- Private Helper Methods ---
+  // Helper methods (already exist)
   double squared_euclidean_distance(const double *a, const double *b) const;
   double euclidean_distance(const double *a, const double *b) const;
   int closest_centroid(const std::vector<double> &point) const;
