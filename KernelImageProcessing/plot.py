@@ -2,196 +2,292 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import seaborn as sns
-import sys
+import os
+import argparse  # Using argparse for robust CLI handling
 
 
-# --- Plotting Function for Block Size Benchmark ---
-def plot_blocksize_performance(csv_path="output/benchmark_blocksize.csv"):
+def generate_kernelsize_plots(csv_path, output_dir):
     """
-    Reads the block size benchmark CSV and plots GPU execution time vs. threads per block.
+    Generates two plots for the kernel size benchmark.
+    1. GPU Time vs. Kernel Size
+    2. Speedup vs. Kernel Size
     """
-    print(f"--- Generating Block Size Performance Plot from '{csv_path}' ---")
+    print(f"\n--- Generating Plots for Mode: KERNELSIZE ---")
     try:
         df = pd.read_csv(csv_path)
     except FileNotFoundError:
         print(f"Error: The file '{csv_path}' was not found.")
         return
 
-    sns.set_theme(style="whitegrid")
-    fig, ax = plt.subplots(figsize=(12, 7))
-    kernels = df["Kernel"].unique()
-
-    # Create a custom categorical x-axis label for clarity
-    df["BlockLabel"] = (
-        df["BlockSize"] + "\n(" + df["ThreadsPerBlock"].astype(str) + " thr)"
-    )
-
-    # Use seaborn for easier plotting with hues
+    # --- Plot 1: GPU Time vs. Kernel Size ---
+    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    sns.set_theme(style="darkgrid", palette="coolwarm")
     sns.lineplot(
         data=df,
-        x="BlockLabel",
+        x="KernelSize",
         y=df["AvgGPUTime"] * 1000,
-        hue="Kernel",
+        hue="KernelType",
         marker="o",
         markersize=8,
-        ax=ax,
-        palette="viridis",
-        sort=False,
+        ax=ax1,
     )
 
-    ax.set_title(
-        f'GPU Kernel Performance vs. Block Size\n(Resolution: {df["Resolution"].iloc[0]})',
-        fontsize=16,
-        pad=20,
-    )
-    ax.set_xlabel(
-        "Block Dimensions (Total Threads per Block)", fontsize=12, labelpad=15
-    )
-    ax.set_ylabel("Average GPU Execution Time (ms)", fontsize=12, labelpad=15)
-    plt.xticks(rotation=45, ha="right")
-    ax.legend(title="Kernel Type", fontsize=10)
-    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+    ax1.set_title("GPU Execution Time vs. Kernel Size", fontsize=16, pad=20)
+    ax1.set_xlabel("Kernel Dimension (N in NxN)", fontsize=12, labelpad=15)
+    ax1.set_ylabel("Average GPU Execution Time (ms)", fontsize=12, labelpad=15)
+    ax1.legend(title="Kernel Type")
+    ax1.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.tight_layout()
 
-    output_filename = "blocksize_performance.png"
-    plt.savefig(output_filename, dpi=300)
-    print(f"Plot saved as '{output_filename}'")
+    time_plot_filename = os.path.join(output_dir, "kernelsize_vs_gputime.png")
+    plt.savefig(time_plot_filename, dpi=300)
+    plt.close(fig1)
+    print(f"Plot saved as '{time_plot_filename}'")
 
-
-# --- Plotting Function for Scaling Benchmark ---
-def plot_scaling_performance(csv_path="output/benchmark_scaling.csv"):
-    """
-    Reads the scaling benchmark CSV and plots GPU execution time vs. utilization fraction.
-    """
-    print(f"--- Generating Scaling Performance Plot from '{csv_path}' ---")
-    try:
-        df = pd.read_csv(csv_path)
-    except FileNotFoundError:
-        print(f"Error: The file '{csv_path}' was not found.")
-        return
-
-    sns.set_theme(style="whitegrid")
-    fig, ax = plt.subplots(figsize=(12, 7))
-
-    # Utilization Fraction is the natural x-axis
-    df["Utilization %"] = df["UtilizationFraction"] * 100
-
+    # --- Plot 2: Speedup vs. Kernel Size ---
+    fig2, ax2 = plt.subplots(figsize=(12, 7))
+    sns.set_theme(style="darkgrid", palette="viridis")
     sns.lineplot(
         data=df,
-        x="Utilization %",
-        y=df["AvgGPUTime"] * 1000,
-        hue="Kernel",
-        marker="o",
-        markersize=8,
-        ax=ax,
-        palette="plasma",
-    )
-
-    ax.set_title(
-        f'GPU Strong Scaling Performance\n(Fixed Resolution: {df["Resolution"].iloc[0]})',
-        fontsize=16,
-        pad=20,
-    )
-    ax.set_xlabel("GPU Utilization via Grid Size Limit (%)", fontsize=12, labelpad=15)
-    ax.set_ylabel("Average GPU Execution Time (ms)", fontsize=12, labelpad=15)
-
-    # Use a log scale for the y-axis if values are very different, but linear is fine here.
-    # ax.set_yscale('log')
-
-    # Format x-axis as percentages
-    ax.xaxis.set_major_formatter(mticker.PercentFormatter())
-
-    ax.legend(title="Kernel Type")
-    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    plt.tight_layout()
-
-    output_filename = "scaling_performance.png"
-    plt.savefig(output_filename, dpi=300)
-    print(f"Plot saved as '{output_filename}'")
-
-
-# --- Plotting Function for Throughput Benchmark ---
-def plot_throughput_performance(csv_path="output/benchmark_throughput.csv"):
-    """
-    Reads the throughput benchmark CSV and plots Speedup vs. Image Resolution (Total Pixels).
-    """
-    print(f"--- Generating Throughput Performance Plot from '{csv_path}' ---")
-    try:
-        df = pd.read_csv(csv_path)
-    except FileNotFoundError:
-        print(f"Error: The file '{csv_path}' was not found.")
-        return
-
-    # --- FIX: Calculate total pixels directly from the 'Resolution' column ---
-    # This is much more robust than parsing directory names.
-    def get_pixels_from_col(res_str):
-        try:
-            parts = res_str.lower().split("x")
-            if len(parts) == 2:
-                return int(parts[0]) * int(parts[1])
-            return 0
-        except:
-            return 0
-
-    df["TotalPixels"] = df["Resolution"].apply(get_pixels_from_col)
-
-    # Sort the dataframe by the number of pixels to ensure the lines on the plot
-    # connect in the correct order (from smallest to largest resolution).
-    df = df.sort_values("TotalPixels").reset_index(drop=True)
-
-    sns.set_theme(style="darkgrid")
-    fig, ax = plt.subplots(figsize=(12, 7))
-
-    sns.lineplot(
-        data=df,
-        x="TotalPixels",
+        x="KernelSize",
         y="Speedup",
-        hue="Kernel",
-        marker="o",
+        hue="KernelType",
+        marker="s",
         markersize=8,
-        ax=ax,
-        palette="magma",
+        ax=ax2,
     )
 
-    ax.set_title(
-        "CPU vs. GPU Speedup Across Different Image Resolutions", fontsize=16, pad=20
-    )
-    ax.set_xlabel("Image Size (Total Pixels)", fontsize=12, labelpad=15)
-    ax.set_ylabel("Speedup Factor (CPU Time / GPU Time)", fontsize=12, labelpad=15)
-
-    # Use a log scale for the x-axis to better visualize different resolutions
-    ax.set_xscale("log")
-
-    # Format the x-axis with commas for readability (e.g., 2,000,000)
-    ax.xaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda x, p: format(int(x), ","))
-    )
-    plt.xticks(rotation=30)
-
-    ax.legend(title="Kernel Type")
+    ax2.set_title("Speedup vs. Kernel Size", fontsize=16, pad=20)
+    ax2.set_xlabel("Kernel Dimension (N in NxN)", fontsize=12, labelpad=15)
+    ax2.set_ylabel("Speedup Factor (CPU Time / GPU Time)", fontsize=12, labelpad=15)
+    ax2.legend(title="Kernel Type")
+    ax2.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.tight_layout()
 
-    output_filename = "throughput_performance.png"
+    speedup_plot_filename = os.path.join(output_dir, "kernelsize_vs_speedup.png")
+    plt.savefig(speedup_plot_filename, dpi=300)
+    plt.close(fig2)
+    print(f"Plot saved as '{speedup_plot_filename}'")
+
+
+def create_separate_plot(
+    df, x_col, y_col, x_label, y_label, title, output_filename, mode
+):
+    """
+    Creates and saves a single, well-formatted plot for one kernel.
+    """
+    # --- ANNOTATION FIX ---
+    # We'll calculate the offset based on the axis range for consistent spacing.
+    # This requires a two-pass approach: create plot, get range, then add text.
+
+    sns.set_theme(style="whitegrid", palette="rocket")
+    fig, ax = plt.subplots(figsize=(11, 6.5))
+
+    sns.lineplot(data=df, x=x_col, y=y_col, marker="o", markersize=8, ax=ax, lw=2.5)
+
+    # --- ANNOTATION FIX - PASS 1: Get axis range ---
+    ymin, ymax = ax.get_ylim()
+    y_range = ymax - ymin
+    y_pos_offset = y_range * 0.025  # Use 2.5% of the total y-axis range as the offset
+
+    # Reset index to safely iterate and compare rows
+    df = df.reset_index(drop=True)
+    for index, row in df.iterrows():
+        va = "bottom"
+        final_offset = y_pos_offset
+        # Compare with the previous row to avoid text overlap
+        if index > 0 and row[y_col] < df.iloc[index - 1][y_col]:
+            va = "top"
+            final_offset = -y_pos_offset * 1.2  # Make downward offset slightly larger
+
+        ax.text(
+            row[x_col],
+            row[y_col] + final_offset,
+            f" {row[y_col]:.1f}x",
+            va=va,
+            ha="center",
+            fontsize=9.5,
+            fontweight="bold",
+        )
+
+    # --- Formatting ---
+    ax.set_title(title, fontsize=16, pad=20)
+    ax.set_xlabel(x_label, fontsize=12, labelpad=15)
+    ax.set_ylabel(y_label, fontsize=12, labelpad=15)
+    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+    if mode == "blocksize" or (mode == "throughput" and len(df[x_col].unique()) < 8):
+        plt.xticks(rotation=30, ha="right")
+
+    if mode == "scaling":
+        ax.xaxis.set_major_formatter(mticker.PercentFormatter())
+
+    plt.tight_layout()
     plt.savefig(output_filename, dpi=300)
+    plt.close(fig)
     print(f"Plot saved as '{output_filename}'")
+
+
+def create_combined_plot(
+    df, x_col, y_col, x_label, y_label, title, output_filename, mode, hue_col
+):
+    """
+    Creates and saves a single plot with all kernels combined.
+    Annotations are disabled here to avoid clutter.
+    """
+    sns.set_theme(style="darkgrid", palette="viridis")
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    sns.lineplot(
+        data=df, x=x_col, y=y_col, hue=hue_col, marker="o", markersize=8, ax=ax, lw=2
+    )
+
+    ax.set_title(title, fontsize=16, pad=20)
+    ax.set_xlabel(x_label, fontsize=12, labelpad=15)
+    ax.set_ylabel(y_label, fontsize=12, labelpad=15)
+    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+    ax.legend(title="Kernel Type")
+
+    if mode == "blocksize" or (mode == "throughput" and len(df[x_col].unique()) < 8):
+        plt.xticks(rotation=30, ha="right")
+
+    if mode == "scaling":
+        ax.xaxis.set_major_formatter(mticker.PercentFormatter())
+
+    plt.tight_layout()
+    plt.savefig(output_filename, dpi=300)
+    plt.close(fig)
+    print(f"Plot saved as '{output_filename}'")
+
+
+def generate_plots(mode, style, csv_path):
+    """
+    Main plotting dispatcher. Reads data and calls the appropriate plotting function.
+    """
+    print(
+        f"\n--- Generating Plots for Mode: {mode.upper()} | Style: {style.upper()} ---"
+    )
+    try:
+        df = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_path}' was not found.")
+        return
+
+    output_dir = f"plots_{mode}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    y_col = "Speedup"
+    y_label = "Speedup Factor (CPU Time / GPU Time)"
+    kernel_col_name = "KernelType" if mode == "kernelsize" else "Kernel"
+
+    # --- DEFINE PLOT PARAMETERS BASED ON MODE ---
+
+    if mode == "blocksize":
+        df["x_axis_label"] = (
+            df["BlockSize"] + "\n(" + df["ThreadsPerBlock"].astype(str) + " thr)"
+        )
+        x_col, x_label = "x_axis_label", "Block Dimensions (Total Threads per Block)"
+        title_prefix = "Block Size vs. Speedup"
+
+    elif mode == "scaling":
+        df["x_axis_label"] = df["UtilizationFraction"] * 100
+        x_col, x_label = "x_axis_label", "GPU Utilization (%)"
+        title_prefix = "Strong Scaling vs. Speedup"
+
+    elif mode == "throughput":
+
+        def get_pixels(res_str):
+            parts = str(res_str).lower().split("x")
+            return int(parts[0]) * int(parts[1]) if len(parts) == 2 else 0
+
+        df["TotalPixels"] = df["Resolution"].apply(get_pixels)
+        df = df[df["TotalPixels"] > 0].sort_values("TotalPixels")
+        df["x_axis_label"] = (
+            df["Resolution"]
+            + "\n("
+            + (df["TotalPixels"] / 1e6).round(1).astype(str)
+            + " MP)"
+        )
+        x_col, x_label = "x_axis_label", "Image Resolution (Megapixels)"
+        title_prefix = "Throughput vs. Speedup"
+
+    elif mode == "kernelsize":
+        df = df.sort_values("KernelSize")
+        df["x_axis_label"] = (
+            df["KernelSize"].astype(str) + "x" + df["KernelSize"].astype(str)
+        )
+        x_col = "x_axis_label"
+        x_label = "Kernel Size (N x N)"  # The axis label is now simpler.
+        title_prefix = "Kernel Size vs. Speedup"
+        # --- END OF FIX ---
+
+    else:
+        print(f"Invalid mode '{mode}'")
+        return
+
+    # --- PLOTTING LOGIC (No changes needed here) ---
+    if style == "separate":
+        for kernel in df[kernel_col_name].unique():
+            kernel_df = df[df[kernel_col_name] == kernel]
+            title = f"{title_prefix} for {kernel} Kernel"
+            output_filename = os.path.join(
+                output_dir, f"{kernel}_{mode}_vs_speedup.png"
+            )
+            # Assuming create_separate_plot is defined as in the previous step
+            create_separate_plot(
+                kernel_df, x_col, y_col, x_label, y_label, title, output_filename, mode
+            )
+    elif style == "combined":
+        title = f"Combined {title_prefix} Analysis"
+        output_filename = os.path.join(output_dir, f"combined_{mode}_vs_speedup.png")
+        # Assuming create_combined_plot is defined and takes hue_col
+        create_combined_plot(
+            df,
+            x_col,
+            y_col,
+            x_label,
+            y_label,
+            title,
+            output_filename,
+            mode,
+            hue_col=kernel_col_name,
+        )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python plot_all_benchmarks.py <mode>")
-        print("Modes:")
-        print("  --blocksize    (default)")
-        print("  --scaling")
-        print("  --throughput")
-        # Default to blocksize if no argument is given
-        plot_blocksize_performance()
+    parser = argparse.ArgumentParser(
+        description="Generate plots from CUDA convolution benchmark data.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+
+    parser.add_argument(
+        "mode",
+        choices=["all", "blocksize", "scaling", "throughput", "kernelsize"],
+        help="The type of benchmark data to plot.",
+    )
+
+    parser.add_argument(
+        "--style",
+        choices=["separate", "combined"],
+        default="separate",
+        help="Plotting style:\n"
+        "  separate: Generate one PNG file per kernel (default).\n"
+        "  combined: Generate one PNG file with all kernels on the same plot.",
+    )
+
+    args = parser.parse_args()
+
+    csv_map = {
+        "blocksize": "output/benchmark_blocksize.csv",
+        "scaling": "output/benchmark_scaling.csv",
+        "throughput": "output/benchmark_throughput.csv",
+        "kernelsize": "output/benchmark_kernelsize.csv",
+    }
+
+    if args.mode == "all":
+        for mode, csv_file in csv_map.items():
+            generate_plots(mode, args.style, csv_file)
+    elif args.mode in csv_map:
+        generate_plots(args.mode, args.style, csv_map[args.mode])
     else:
-        mode = sys.argv[1]
-        if mode == "--blocksize":
-            plot_blocksize_performance()
-        elif mode == "--scaling":
-            plot_scaling_performance()
-        elif mode == "--throughput":
-            plot_throughput_performance()
-        else:
-            print(f"Error: Unknown mode '{mode}'")
+        print(f"Error: Invalid mode '{args.mode}'")

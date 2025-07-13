@@ -41,6 +41,8 @@ __global__ void conv2dKernel(const unsigned char* in, float* out,
 }
 
 
+
+
 // --- IMPLEMENTATION OF FUNCTIONS DECLARED IN THE HEADER ---
 
 GpuConvolution::GpuConvolution(const cv::Mat& kernel)
