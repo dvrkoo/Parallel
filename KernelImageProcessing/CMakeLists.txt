@@ -35,7 +35,7 @@ set_target_properties(GpuConvolution PROPERTIES
 )
 
 # Executable
-add_executable(KernelApp src/main.cpp)
+add_executable(KernelApp src/main.cpp src/BenchmarkSuite.cpp)
 target_include_directories(KernelApp PRIVATE include)
 target_link_libraries(KernelApp PRIVATE SequentialConvolution GpuConvolution )
 

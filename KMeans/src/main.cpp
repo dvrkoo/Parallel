@@ -2,6 +2,19 @@
 #include "SequentialKMeans.h"
 #include "dataset.h"
 
+#include "ParallelKMeans.h"
+#include "SequentialKMeans.h"
+#include "dataset.h"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <omp.h>
+#include <sstream>
+#include <string>
+#include <vector>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
