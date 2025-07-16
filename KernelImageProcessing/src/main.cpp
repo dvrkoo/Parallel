@@ -12,6 +12,9 @@
 #include <vector>
 
 const int NUM_AVERAGING_RUNS = 30;
+const int IMAGES_PER_RESOLUTION = 5;
+
+bool g_use_shared_memory = false;
 
 struct Test {
   std::string name;
@@ -29,14 +32,37 @@ struct ResolutionDir {
   }
 };
 
-// Forward declarations
-void run_throughput_benchmark(std::vector<ResolutionDir> &resolution_dirs,
-                              const std::vector<Test> &tests);
-void run_blocksize_benchmark(const std::vector<ResolutionDir> &resolution_dirs,
-                             const std::vector<Test> &tests);
-void run_kernelsize_benchmark(
-    const std::vector<ResolutionDir> &resolution_dirs);
+cv::Mat getOrGenerateImage(int width, int height,
+                           const std::filesystem::path &image_path) {
+  // Ensure the parent directory exists
+  std::filesystem::create_directories(image_path.parent_path());
 
+  if (std::filesystem::exists(image_path)) {
+    std::cout << "Loading existing image: " << image_path << std::endl;
+    cv::Mat img = cv::imread(image_path.string(), cv::IMREAD_COLOR);
+    if (!img.empty()) {
+      return img;
+    }
+    std::cerr << "Warning: Failed to load existing image, will regenerate."
+              << std::endl;
+  }
+
+  std::cout << "Generating new random image (" << width << "x" << height
+            << ") and saving to: " << image_path << std::endl;
+  cv::Mat new_img(height, width, CV_8UC3);
+  // Use a fixed seed for the random number generator for 100% reproducibility
+  cv::RNG rng(12345);
+  rng.fill(new_img, cv::RNG::UNIFORM, 0, 256);
+  std::vector<int> tiff_params = {cv::IMWRITE_TIFF_COMPRESSION,
+                                  1}; // 1 = No compression
+  cv::imwrite(image_path.string(), new_img, tiff_params);
+  return new_img;
+}
+
+// Forward declarations
+void run_throughput_benchmark(const std::vector<Test> &tests);
+void run_blocksize_benchmark(const std::vector<Test> &tests);
+void run_kernelsize_benchmark(const std::vector<Test> &tests);
 // ===================================================================
 //                        CORE TIMING UTILITIES
 // ===================================================================
@@ -65,6 +91,7 @@ double timeGpu(GpuConvolution &conv, const cv::Mat &img, const dim3 &blockDim,
   return milliseconds / 1000.0;
 }
 const ResolutionDir *
+
 find_target_resolution_dir(std::vector<ResolutionDir> &resolution_dirs,
                            int target_w, int target_h) {
   const ResolutionDir *target_dir = nullptr;
@@ -107,15 +134,35 @@ find_target_resolution_dir(std::vector<ResolutionDir> &resolution_dirs,
 // ===================================================================
 
 int main(int argc, char **argv) {
+  // --- NEW ---: Simple argument parsing for the --shared flag
+  std::vector<char *> filtered_argv;
+  for (int i = 0; i < argc; ++i) {
+    if (strcmp(argv[i], "--shared") == 0) {
+      g_use_shared_memory = true;
+    } else {
+      filtered_argv.push_back(argv[i]);
+    }
+  }
+  // Update argc and argv to a version without our custom flag
+  argc = filtered_argv.size();
+  argv = filtered_argv.data();
+
+  if (g_use_shared_memory) {
+    std::cout << ">> OPTIMIZATION: Shared Memory Kernel ENABLED <<\n\n";
+  }
+
   if (argc < 3) {
-    std::cerr << "Usage: KernelApp <mode> <root_image_directory>\n";
+    std::cerr << "Usage: KernelApp [flags] <mode> <root_image_directory>\n";
     std::cerr << "Modes:\n";
     std::cerr << "  --throughput   : Iterates through all subdirs and runs "
                  "throughput tests.\n";
-    std::cerr << "  --blocksize    : Finds highest resolution subdir and tests "
-                 "different block sizes.\n";
     std::cerr
-        << "  --kernelsize   : Tests performance as kernel size increases ";
+        << "  --blocksize    : Tests different block sizes on a 1440p image.\n";
+    std::cerr << "  --kernelsize   : Tests performance as kernel size "
+                 "increases on a 1440p image.\n";
+    std::cerr << "Optional Flags:\n";
+    std::cerr
+        << "  --shared       : Use the optimized shared memory GPU kernel.\n";
     return 1;
   }
 
@@ -129,6 +176,7 @@ int main(int argc, char **argv) {
 
   std::filesystem::create_directories("output");
 
+  // Define tests (you can add more here)
   auto prewittX_data = Kernels::PrewittX();
   auto gauss5_data = Kernels::Gaussian5x5();
   auto gauss7_data = Kernels::Gaussian7x7();
@@ -175,12 +223,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // Dispatch to benchmark functions
   if (mode == "--throughput") {
-    run_throughput_benchmark(discovered_dirs, tests);
+    run_throughput_benchmark(tests);
   } else if (mode == "--blocksize") {
-    run_blocksize_benchmark(discovered_dirs, tests);
+    run_blocksize_benchmark(tests);
   } else if (mode == "--kernelsize") {
-    run_kernelsize_benchmark(discovered_dirs);
+    run_kernelsize_benchmark(tests);
   } else {
     std::cerr << "Unknown mode: " << mode << "\n";
     return 1;
@@ -193,126 +242,193 @@ int main(int argc, char **argv) {
 //                  BENCHMARK IMPLEMENTATIONS
 // ===================================================================
 
-void run_throughput_benchmark(std::vector<ResolutionDir> &resolution_dirs,
-                              const std::vector<Test> &tests) {
-  std::cout << "\n--- Running Throughput Benchmark ---\n";
-  std::ofstream csv("output/benchmark_throughput.csv");
-  csv << "ResolutionName,Resolution,Kernel,AvgCPUTime,AvgGPUTime,Speedup\n";
-  dim3 defaultBlockDim(16, 16);
+// In main.cpp
 
-  for (const auto &dir : resolution_dirs) {
-    std::cout << "Processing Directory: '" << dir.name << "'\n";
-    cv::Mat base_image;
-    for (const auto &entry : std::filesystem::directory_iterator(dir.path)) {
-      if (entry.is_regular_file()) {
-        base_image = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-        if (!base_image.empty())
-          break;
+// --- Add this constant at the top of your file ---
+
+void run_throughput_benchmark(const std::vector<Test> &tests) {
+  std::cout << "\n--- Running Throughput Benchmark ---\n";
+  std::cout << "Using " << IMAGES_PER_RESOLUTION
+            << " unique images per resolution.\n\n";
+
+  std::ofstream csv("output/benchmark_throughput.csv");
+  csv << "Resolution,Kernel,AvgCPUTime,AvgGPUTime,Speedup,Optimization\n";
+  std::string optimization_type = g_use_shared_memory ? "Shared" : "Global";
+
+  std::vector<int> sizes = {512, 1024, 1920, 2560, 3840, 4096};
+
+  for (int size : sizes) {
+    std::cout << "--- Benchmarking " << size << "x" << size << " Images ---"
+              << std::endl;
+
+    // --- NEW: Data structures to hold results across multiple images ---
+    // We use a map to store total times for each kernel name
+    std::map<std::string, double> total_cpu_times;
+    std::map<std::string, double> total_gpu_times;
+
+    // --- NEW: Loop over the number of images ---
+    for (int img_idx = 0; img_idx < IMAGES_PER_RESOLUTION; ++img_idx) {
+      std::string resolution_str =
+          std::to_string(size) + "x" + std::to_string(size);
+
+      // Generate a unique filename for each image
+      std::filesystem::path image_path = "generated_images/" + resolution_str +
+                                         "_img" + std::to_string(img_idx) +
+                                         ".tiff";
+      cv::Mat base_image = getOrGenerateImage(size, size, image_path);
+
+      std::cout << "  Processing Image " << img_idx + 1 << "/"
+                << IMAGES_PER_RESOLUTION << "..." << std::endl;
+
+      // Run all tests on this single image
+      for (const auto &t : tests) {
+        // (image processing logic to get imageToProcess is the same)
+        cv::Mat imageToProcess;
+        if (t.name.find("Prewitt") != std::string::npos &&
+            base_image.channels() > 1) {
+          cv::cvtColor(base_image, imageToProcess, cv::COLOR_BGR2GRAY);
+        } else {
+          imageToProcess = base_image;
+        }
+
+        // Average the runs for this specific image and kernel
+        double avg_cpu_time_for_this_image = 0;
+        for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
+          avg_cpu_time_for_this_image += timeCpu(imageToProcess, t.kern);
+        avg_cpu_time_for_this_image /= NUM_AVERAGING_RUNS;
+
+        GpuConvolution gpu_conv(t.kern, g_use_shared_memory);
+        gpu_conv.apply(imageToProcess, dim3(16, 16), 1); // Warmup
+        cudaDeviceSynchronize();
+
+        double avg_gpu_time_for_this_image = 0;
+        for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
+          avg_gpu_time_for_this_image +=
+              timeGpu(gpu_conv, imageToProcess, dim3(16, 16), 0);
+        avg_gpu_time_for_this_image /= NUM_AVERAGING_RUNS;
+
+        // Accumulate the results
+        total_cpu_times[t.name] += avg_cpu_time_for_this_image;
+        total_gpu_times[t.name] += avg_gpu_time_for_this_image;
       }
     }
-    if (base_image.empty())
-      continue;
 
+    // --- NEW: Final averaging and writing to CSV ---
+    // After testing all images for this resolution, calculate the final average
+    // and write one row per kernel.
+    std::cout << "  Final Results for " << size << "x" << size << ":"
+              << std::endl;
     for (const auto &t : tests) {
-      cv::Mat imageToProcess;
-      if (t.name.find("Prewitt") != std::string::npos)
-        cv::cvtColor(base_image, imageToProcess, cv::COLOR_BGR2GRAY);
-      else
-        imageToProcess = base_image;
+      double final_avg_cpu_time =
+          total_cpu_times[t.name] / IMAGES_PER_RESOLUTION;
+      double final_avg_gpu_time =
+          total_gpu_times[t.name] / IMAGES_PER_RESOLUTION;
+      double speedup = (final_avg_gpu_time > 0)
+                           ? final_avg_cpu_time / final_avg_gpu_time
+                           : 0;
 
-      double total_cpu_time = 0.0;
-      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
-        total_cpu_time += timeCpu(imageToProcess, t.kern);
-      double avg_cpu_time = total_cpu_time / NUM_AVERAGING_RUNS;
+      std::cout << "    " << t.name << " | Speedup: " << speedup << "x"
+                << std::endl;
 
-      GpuConvolution gpu_conv(t.kern);
-      gpu_conv.apply(imageToProcess, defaultBlockDim, 1);
-      cudaDeviceSynchronize();
-
-      double total_gpu_time = 0.0;
-      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
-        total_gpu_time += timeGpu(gpu_conv, imageToProcess, defaultBlockDim, 0);
-      double avg_gpu_time = total_gpu_time / NUM_AVERAGING_RUNS;
-      double speedup = (avg_gpu_time > 0) ? avg_cpu_time / avg_gpu_time : 0;
-
-      csv << dir.name << "," << dir.width << "x" << dir.height << "," << t.name
-          << "," << avg_cpu_time << "," << avg_gpu_time << "," << speedup
-          << "\n";
+      csv << size << "x" << size << "," << t.name << "," << final_avg_cpu_time
+          << "," << final_avg_gpu_time << "," << speedup << ","
+          << optimization_type << "\n";
     }
   }
   csv.close();
 }
 
-void run_kernelsize_benchmark(
-    const std::vector<ResolutionDir> &resolution_dirs) {
+// In main.cpp
+
+// In main.cpp
+
+void run_kernelsize_benchmark(const std::vector<Test> &tests_to_ignore) {
   std::cout << "\n--- Running Kernel Size Benchmark ---\n";
   std::cout << "Analyzes performance as the N in an NxN kernel increases.\n";
+  std::cout << "Using " << IMAGES_PER_RESOLUTION
+            << " unique images for averaging.\n\n";
 
-  // Create a mutable copy for sorting
-  auto dirs_copy = resolution_dirs;
-  const ResolutionDir *target_dir =
-      find_target_resolution_dir(dirs_copy, 2560, 1440);
-  if (!target_dir) {
-    std::cerr
-        << "Error: No suitable directory found for kernel size benchmark.\n";
-    return;
-  }
-
-  cv::Mat base_image;
-  // Find a valid image in the target directory
-  for (const auto &entry :
-       std::filesystem::directory_iterator(target_dir->path)) {
-    if (entry.is_regular_file()) {
-      base_image = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-      if (!base_image.empty())
-        break;
-    }
-  }
-  if (base_image.empty()) {
-    std::cerr << "Error: No loadable images found in " << target_dir->path
-              << "\n";
-    return;
-  }
+  const int w = 1920, h = 1920;
+  std::string resolution_str = std::to_string(w) + "x" + std::to_string(h);
 
   std::ofstream csv("output/benchmark_kernelsize.csv");
-  csv << "Resolution,KernelType,KernelSize,AvgCPUTime,AvgGPUTime,Speedup\n";
+  csv << "Resolution,KernelType,KernelSize,AvgCPUTime,AvgGPUTime,Speedup,"
+         "Optimization\n";
 
   std::vector<int> kernel_sizes = {3, 5, 7, 9, 11, 15, 21};
-  dim3 blockDim(16, 16);
+  dim3 blockDim(16, 16); // A fixed, reasonable block size
 
   for (int size : kernel_sizes) {
     std::cout << "--- Benchmarking " << size << "x" << size << " Kernels ---"
               << std::endl;
 
-    cv::Mat kx = cv::getGaussianKernel(size, 0, CV_32F);
-    cv::Mat gauss_kernel = kx * kx.t();
+    // Generate the kernels for this size
+    cv::Mat gauss_kernel = cv::getGaussianKernel(size, 0, CV_32F);
+    gauss_kernel = gauss_kernel * gauss_kernel.t();
     cv::Mat box_kernel(size, size, CV_32F, cv::Scalar(1.0 / (size * size)));
-
     std::vector<Test> current_tests = {{"Gaussian", gauss_kernel},
                                        {"Box", box_kernel}};
 
+    // Use maps to accumulate results for each kernel type (Gaussian, Box)
+    std::map<std::string, double> total_cpu_times;
+    std::map<std::string, double> total_gpu_times;
+
+    // Outer loop to process multiple unique images
+    for (int img_idx = 0; img_idx < IMAGES_PER_RESOLUTION; ++img_idx) {
+      std::filesystem::path image_path = "generated_images/" + resolution_str +
+                                         "_img" + std::to_string(img_idx) +
+                                         ".tiff";
+      cv::Mat base_image = getOrGenerateImage(w, h, image_path);
+
+      std::cout << "  Processing Image " << img_idx + 1 << "/"
+                << IMAGES_PER_RESOLUTION << " on " << size << "x" << size
+                << " kernels..." << std::endl;
+
+      // Inner loop for the two kernel types (Gaussian and Box)
+      for (const auto &t : current_tests) {
+        // Since these are blur filters, we always use the color image
+        cv::Mat imageToProcess = base_image;
+
+        // Average the runs for this specific image and kernel
+        double avg_cpu_time_for_this_image = 0;
+        for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
+          avg_cpu_time_for_this_image += timeCpu(imageToProcess, t.kern);
+        avg_cpu_time_for_this_image /= NUM_AVERAGING_RUNS;
+
+        GpuConvolution gpu_conv(t.kern, g_use_shared_memory);
+        gpu_conv.apply(imageToProcess, blockDim, 1); // Warm-up
+        cudaDeviceSynchronize();
+
+        double avg_gpu_time_for_this_image = 0;
+        for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
+          avg_gpu_time_for_this_image +=
+              timeGpu(gpu_conv, imageToProcess, blockDim, 0);
+        avg_gpu_time_for_this_image /= NUM_AVERAGING_RUNS;
+
+        // Accumulate results
+        total_cpu_times[t.name] += avg_cpu_time_for_this_image;
+        total_gpu_times[t.name] += avg_gpu_time_for_this_image;
+      }
+    }
+
+    // Final averaging and writing to CSV for this kernel size
+    std::cout << "  Final Results for " << size << "x" << size << ":"
+              << std::endl;
     for (const auto &t : current_tests) {
-      double total_cpu_time = 0.0;
-      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
-        total_cpu_time += timeCpu(base_image, t.kern);
-      double avg_cpu_time = total_cpu_time / NUM_AVERAGING_RUNS;
+      double final_avg_cpu_time =
+          total_cpu_times[t.name] / IMAGES_PER_RESOLUTION;
+      double final_avg_gpu_time =
+          total_gpu_times[t.name] / IMAGES_PER_RESOLUTION;
+      double speedup = (final_avg_gpu_time > 0)
+                           ? final_avg_cpu_time / final_avg_gpu_time
+                           : 0;
 
-      GpuConvolution gpu_conv(t.kern);
-      gpu_conv.apply(base_image, blockDim, 1);
-      cudaDeviceSynchronize();
+      std::string optimization_type = g_use_shared_memory ? "Shared" : "Global";
+      std::cout << "    " << t.name << " | Speedup: " << speedup << "x\n";
 
-      double total_gpu_time = 0.0;
-      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
-        total_gpu_time += timeGpu(gpu_conv, base_image, blockDim, 0);
-      double avg_gpu_time = total_gpu_time / NUM_AVERAGING_RUNS;
-      double speedup = (avg_gpu_time > 0) ? avg_cpu_time / avg_gpu_time : 0;
-
-      std::cout << "  " << t.name << " " << size << "x" << size
-                << " | Avg. GPU Time: " << avg_gpu_time * 1000 << " ms"
-                << " | Speedup: " << speedup << "x\n";
-
-      csv << target_dir->name << "," << t.name << "," << size << ","
-          << avg_cpu_time << "," << avg_gpu_time << "," << speedup << "\n";
+      csv << resolution_str << "," << t.name << "," << size << ","
+          << final_avg_cpu_time << "," << final_avg_gpu_time << "," << speedup
+          << "," << optimization_type << "\n";
     }
   }
   csv.close();
@@ -320,69 +436,117 @@ void run_kernelsize_benchmark(
                "'output/benchmark_kernelsize.csv'\n";
 }
 
-void run_blocksize_benchmark(const std::vector<ResolutionDir> &resolution_dirs,
-                             const std::vector<Test> &tests) {
+// In main.cpp
+
+void run_blocksize_benchmark(const std::vector<Test> &tests) {
   std::cout << "\n--- Running Block Size Benchmark ---\n";
+  std::cout << "Analyzes performance by varying threads-per-block on a "
+               "fixed-size image.\n";
+  std::cout << "Using " << IMAGES_PER_RESOLUTION
+            << " unique images for averaging.\n\n";
 
-  auto dirs_copy = resolution_dirs;
-  const ResolutionDir *target_dir =
-      find_target_resolution_dir(dirs_copy, 2560, 1440);
-
-  cv::Mat base_image;
-  for (const auto &entry :
-       std::filesystem::directory_iterator(target_dir->path)) {
-    if (entry.is_regular_file()) {
-      base_image = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-      if (!base_image.empty())
-        break;
-    }
-  }
-  if (base_image.empty())
-    return;
+  const int w = 1920, h = 1920;
+  std::string resolution_str = std::to_string(w) + "x" + std::to_string(h);
 
   std::ofstream csv("output/benchmark_blocksize.csv");
   csv << "Resolution,Kernel,BlockSize,ThreadsPerBlock,AvgCPUTime,AvgGPUTime,"
-         "Speedup\n";
+         "Speedup,Optimization\n";
 
   std::vector<dim3> block_sizes = {dim3(4, 4), dim3(8, 8), dim3(16, 16),
                                    dim3(32, 32)};
 
   for (const auto &t : tests) {
-    std::cout << "Benchmarking Kernel: " << t.name << "\n";
-    cv::Mat imageToProcess;
-    if (t.name.find("Prewitt") != std::string::npos)
-      cv::cvtColor(base_image, imageToProcess, cv::COLOR_BGR2GRAY);
-    else
-      imageToProcess = base_image;
+    std::cout << "Benchmarking Kernel: " << t.name << std::endl;
 
-    double total_cpu_time = 0.0;
-    for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
-      total_cpu_time += timeCpu(imageToProcess, t.kern);
-    double avg_cpu_time = total_cpu_time / NUM_AVERAGING_RUNS;
+    // We will calculate the average CPU time once across all images,
+    // as it's independent of the GPU block size.
+    double total_cpu_time_across_images = 0;
 
-    GpuConvolution gpu_conv(t.kern);
-    gpu_conv.apply(imageToProcess, dim3(8, 8), 1);
-    cudaDeviceSynchronize();
+    // This map will store the total GPU time for each block size across all
+    // images.
+    std::map<std::string, double> total_gpu_times_by_blocksize;
+
+    // Outer loop to process multiple unique images
+    for (int img_idx = 0; img_idx < IMAGES_PER_RESOLUTION; ++img_idx) {
+      std::filesystem::path image_path = "generated_images/" + resolution_str +
+                                         "_img" + std::to_string(img_idx) +
+                                         ".tiff";
+      cv::Mat base_image = getOrGenerateImage(w, h, image_path);
+
+      std::cout << "  Processing Image " << img_idx + 1 << "/"
+                << IMAGES_PER_RESOLUTION << "..." << std::endl;
+
+      cv::Mat imageToProcess;
+      if (t.name.find("Prewitt") != std::string::npos &&
+          base_image.channels() > 1) {
+        cv::cvtColor(base_image, imageToProcess, cv::COLOR_BGR2GRAY);
+      } else {
+        imageToProcess = base_image;
+      }
+
+      // Accumulate CPU time
+      double avg_cpu_time_for_this_image = 0;
+      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i)
+        avg_cpu_time_for_this_image += timeCpu(imageToProcess, t.kern);
+      total_cpu_time_across_images +=
+          (avg_cpu_time_for_this_image / NUM_AVERAGING_RUNS);
+
+      // Inner loop to test all block sizes on the current image
+      for (const auto &block_dim : block_sizes) {
+        bool can_use_shared = g_use_shared_memory;
+        if (g_use_shared_memory && (block_dim.x != 16 || block_dim.y != 16)) {
+          can_use_shared = false;
+        }
+
+        GpuConvolution gpu_conv(t.kern, can_use_shared);
+        gpu_conv.apply(imageToProcess, block_dim, 1); // Warm-up
+        cudaDeviceSynchronize();
+
+        double avg_gpu_time_for_this_block = 0;
+        for (int i = 0; i < NUM_AVERAGING_RUNS; ++i) {
+          avg_gpu_time_for_this_block +=
+              timeGpu(gpu_conv, imageToProcess, block_dim, 0);
+        }
+
+        std::string block_str =
+            std::to_string(block_dim.x) + "x" + std::to_string(block_dim.y);
+        total_gpu_times_by_blocksize[block_str] +=
+            (avg_gpu_time_for_this_block / NUM_AVERAGING_RUNS);
+      }
+    }
+
+    // Final averaging and writing to CSV for this kernel
+    double final_avg_cpu_time =
+        total_cpu_time_across_images / IMAGES_PER_RESOLUTION;
+    std::cout << "  Final Results for " << t.name << ":" << std::endl;
 
     for (const auto &block_dim : block_sizes) {
-      double total_gpu_time = 0.0;
-      for (int i = 0; i < NUM_AVERAGING_RUNS; ++i) {
-        total_gpu_time += timeGpu(gpu_conv, imageToProcess, block_dim, 0);
-      }
-      double avg_gpu_time = total_gpu_time / NUM_AVERAGING_RUNS;
-      double speedup = avg_gpu_time > 0 ? avg_cpu_time / avg_gpu_time : 0;
       std::string block_str =
           std::to_string(block_dim.x) + "x" + std::to_string(block_dim.y);
-      unsigned int threads_per_block = block_dim.x * block_dim.y * block_dim.z;
+      double final_avg_gpu_time =
+          total_gpu_times_by_blocksize[block_str] / IMAGES_PER_RESOLUTION;
+      double speedup =
+          final_avg_gpu_time > 0 ? final_avg_cpu_time / final_avg_gpu_time : 0;
 
-      std::cout << "  Block Size: " << block_str
-                << " | Avg. GPU Time: " << avg_gpu_time
-                << "s | Speedup: " << speedup << "x\n";
-      csv << target_dir->name << "," << t.name << "," << block_str << ","
-          << threads_per_block << "," << avg_cpu_time << "," << avg_gpu_time
-          << "," << speedup << "\n";
+      bool can_use_shared =
+          g_use_shared_memory && (block_dim.x == 16 && block_dim.y == 16);
+      std::string optimization_type = can_use_shared ? "Shared" : "Global";
+      unsigned int threads_per_block = block_dim.x * block_dim.y;
+
+      std::cout << "    Block Size: " << std::setw(7) << std::left << block_str
+                << " | " << std::setw(17)
+                << ("(" + std::to_string(threads_per_block) + " thr / " +
+                    optimization_type + ")")
+                << " | Speedup: " << speedup << "x\n";
+
+      csv << resolution_str << "," << t.name << "," << block_str << ","
+          << threads_per_block << "," << final_avg_cpu_time << ","
+          << final_avg_gpu_time << "," << speedup << "," << optimization_type
+          << "\n";
     }
-    std::cout << "\n";
+    std::cout << std::endl;
   }
   csv.close();
+  std::cout << "\nBlock size benchmark data saved to "
+               "'output/benchmark_blocksize.csv'\n";
 }

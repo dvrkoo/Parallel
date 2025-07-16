@@ -10,7 +10,7 @@ class GpuConvolution {
 public:
   // --- DECLARATIONS ---
   // These functions have their code in the .cu file.
-  GpuConvolution(const cv::Mat &kernel);
+  GpuConvolution(const cv::Mat &kernel, bool use_shared_memory = false);
   ~GpuConvolution();
 
   // The "master" apply method that does all the work.
@@ -39,6 +39,7 @@ private:
   int kCols_;
 
   float *d_k_ = nullptr;
+  bool use_shared_mem_ = false;
 };
 
 #endif // GPU_CONVOLUTION_H
