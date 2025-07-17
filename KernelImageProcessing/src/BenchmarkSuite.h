@@ -1,5 +1,3 @@
-// BenchmarkSuite.h
-
 #ifndef BENCHMARK_SUITE_H
 #define BENCHMARK_SUITE_H
 
@@ -9,7 +7,6 @@
 #include <vector>
 
 // Forward declare the GpuConvolution class to avoid including its full header
-// here. This is a good practice to reduce compilation dependencies.
 class GpuConvolution;
 
 // A simple struct to hold the definition of a single test case.

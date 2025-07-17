@@ -26,5 +26,4 @@ std::vector<float> Gaussian7x7() {
     out.push_back(v / 1003.f);
   return out;
 }
-// A 5x5 Laplacian of Gaussian (LoG) kernel
 } // namespace Kernels

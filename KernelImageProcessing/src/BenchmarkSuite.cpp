@@ -1,5 +1,3 @@
-// BenchmarkSuite.cpp
-
 #include "BenchmarkSuite.h"
 #include "CpuConvolution.h"
 #include "GpuConvolution.h"
@@ -10,7 +8,7 @@
 #include <string>
 
 // --- Configuration Constants ---
-const int NUM_TIMING_RUNS = 30;
+const int NUM_TIMING_RUNS = 5;
 const int NUM_STATISTICAL_IMAGES = 3;
 
 // ===================================================================
@@ -206,7 +204,6 @@ void BenchmarkSuite::run_throughput() {
   }
   csv.close();
 }
-// In BenchmarkSuite.cpp, after the run_throughput() function...
 
 void BenchmarkSuite::run_blocksize() {
   std::cout << "\n--- Running Block Size Benchmark ---\n";
@@ -218,7 +215,13 @@ void BenchmarkSuite::run_blocksize() {
   const int w = 1920, h = 1920;
   std::string resolution_str = std::to_string(w) + "x" + std::to_string(h);
 
-  std::ofstream csv("output/benchmark_blocksize.csv");
+  std::string filename = "output/";
+  if (use_shared_mem_) {
+    filename += "shared_benchmark_blocksize.csv";
+  } else {
+    filename += "stock_benchmark_blocksize.csv";
+  }
+  std::ofstream csv(filename);
   csv << "Resolution,Kernel,BlockSize,ThreadsPerBlock,AvgCPUTime,AvgGPUTime,"
          "Speedup,Optimization\n";
 
@@ -294,7 +297,16 @@ void BenchmarkSuite::run_kernelsize() {
   const int w = 1920, h = 1920;
   std::string resolution_str = std::to_string(w) + "x" + std::to_string(h);
 
-  std::ofstream csv("output/benchmark_kernelsize.csv");
+  std::string filename = "output/";
+  if (use_shared_mem_) {
+    filename += "shared_benchmark_kernelsize.csv";
+  } else {
+    filename += "stock_benchmark_kernelsize.csv";
+  }
+  std::ofstream csv(filename);
+  std::cout << "Saving results to: " << filename << std::endl;
+  // --- END FILENAME FIX ---
+
   csv << "Resolution,KernelType,KernelSize,AvgCPUTime,AvgGPUTime,Speedup,"
          "Optimization\n";
   std::string opt_type = use_shared_mem_ ? "Shared" : "Global";

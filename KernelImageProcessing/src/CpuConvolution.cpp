@@ -49,7 +49,6 @@ cv::Mat CpuConvolution::apply(const cv::Mat &input) const {
             sum[2] += pixel[2] * kval;
           }
         }
-        // FIX: Do not take absolute value. Store the raw Vec3f sum.
         output.at<cv::Vec3f>(y, x) = sum;
       }
     }
