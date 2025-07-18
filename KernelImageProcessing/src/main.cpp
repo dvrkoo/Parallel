@@ -1,5 +1,3 @@
-// main.cpp
-
 #include "BenchmarkSuite.h"
 #include <iostream>
 

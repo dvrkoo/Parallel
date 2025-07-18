@@ -32,4 +32,4 @@ private:
   bool use_shared_mem_ = false;
 };
 
-#endif // GPU_CONVOLUTION_H
+#endif

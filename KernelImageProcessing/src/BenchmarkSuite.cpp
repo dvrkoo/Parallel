@@ -8,8 +8,8 @@
 #include <string>
 
 // --- Configuration Constants ---
-const int NUM_TIMING_RUNS = 5;
-const int NUM_STATISTICAL_IMAGES = 3;
+const int NUM_TIMING_RUNS = 30;
+const int NUM_STATISTICAL_IMAGES = 5;
 
 // ===================================================================
 //                       Core Timing Utilities
@@ -96,6 +96,8 @@ void BenchmarkSuite::run() {
     run_blocksize();
   else if (mode_ == "--kernelsize")
     run_kernelsize();
+  else if (mode_ == "--visual")
+    run_visual_test();
   else
     std::cerr << "Unknown mode: " << mode_ << "\n";
 }
@@ -116,7 +118,7 @@ void BenchmarkSuite::parse_args(int argc, char **argv) {
 
   if (filtered_argv.size() < 2) {
     std::cerr << "Usage: KernelApp [flags] <mode>\n";
-    std::cerr << "Modes: --throughput, --blocksize, --kernelsize\n";
+    std::cerr << "Modes: --throughput, --blocksize, --kernelsize --visual\n";
     std::cerr << "Flags: --shared\n";
     exit(1);
   }
@@ -168,8 +170,14 @@ void BenchmarkSuite::run_throughput() {
   std::ofstream csv(filename);
   csv << "Resolution,Kernel,AvgCPUTime,AvgGPUTime,Speedup,Optimization\n";
   std::string opt_type = use_shared_mem_ ? "Shared" : "Global";
+  std::map<std::string, dim3> optimal_block_sizes = {
+      {"PrewittX", dim3(16, 8)},
+      {"Gauss5x5", dim3(32, 16)},
+      {"Gauss7x7", dim3(32, 16)},
+      {"LoG5x5", dim3(16, 8)},
+      {"Sharpen3x3", dim3(16, 16)}};
 
-  std::vector<int> sizes = {512, 1024, 1920, 2560, 3840, 4096};
+  std::vector<int> sizes = {256, 512, 1024, 1920, 2560, 3840, 4096};
 
   for (int size : sizes) {
     std::cout << "--- Benchmarking " << size << "x" << size << " Images ---"
@@ -180,8 +188,9 @@ void BenchmarkSuite::run_throughput() {
       cv::Mat image =
           getOrGenerateImage(size, size, "_img" + std::to_string(i));
       for (const auto &test : tests_) {
+        dim3 block_dim = optimal_block_sizes[test.name];
         auto result =
-            BenchmarkRunner::run(image, test, dim3(16, 16), use_shared_mem_);
+            BenchmarkRunner::run(image, test, block_dim, use_shared_mem_);
         accumulated_results[test.name].avg_cpu_time += result.avg_cpu_time;
         accumulated_results[test.name].avg_gpu_time += result.avg_gpu_time;
       }
@@ -225,8 +234,9 @@ void BenchmarkSuite::run_blocksize() {
   csv << "Resolution,Kernel,BlockSize,ThreadsPerBlock,AvgCPUTime,AvgGPUTime,"
          "Speedup,Optimization\n";
 
-  std::vector<dim3> block_sizes = {dim3(8, 8),  dim3(16, 8),  dim3(16, 16),
-                                   dim3(32, 8), dim3(32, 16), dim3(32, 32)};
+  std::vector<dim3> block_sizes = {dim3(4, 4),   dim3(8, 8),  dim3(16, 8),
+                                   dim3(16, 16), dim3(32, 8), dim3(32, 16),
+                                   dim3(32, 32)};
 
   for (const auto &test : tests_) {
     std::cout << "Benchmarking Kernel: " << test.name << std::endl;
@@ -239,12 +249,8 @@ void BenchmarkSuite::run_blocksize() {
       cv::Mat image = getOrGenerateImage(w, h, "_img" + std::to_string(i));
 
       for (const auto &block_dim : block_sizes) {
-        // Determine if shared memory can be used for this specific block size.
-        bool can_use_shared =
-            use_shared_mem_ && (block_dim.x == 16 && block_dim.y == 16);
-
         auto result =
-            BenchmarkRunner::run(image, test, block_dim, can_use_shared);
+            BenchmarkRunner::run(image, test, block_dim, use_shared_mem_);
 
         std::string block_str =
             std::to_string(block_dim.x) + "x" + std::to_string(block_dim.y);
@@ -266,9 +272,7 @@ void BenchmarkSuite::run_blocksize() {
                           : 0;
 
       unsigned int threads_per_block = block_dim.x * block_dim.y;
-      bool can_use_shared =
-          use_shared_mem_ && (block_dim.x == 16 && block_dim.y == 16);
-      std::string opt_type = can_use_shared ? "Shared" : "Global";
+      std::string opt_type = use_shared_mem_ ? "Shared" : "Global";
 
       std::cout << "    Block Size: " << std::setw(7) << std::left << block_str
                 << " | " << std::setw(17)
@@ -305,7 +309,6 @@ void BenchmarkSuite::run_kernelsize() {
   }
   std::ofstream csv(filename);
   std::cout << "Saving results to: " << filename << std::endl;
-  // --- END FILENAME FIX ---
 
   csv << "Resolution,KernelType,KernelSize,AvgCPUTime,AvgGPUTime,Speedup,"
          "Optimization\n";
@@ -331,7 +334,6 @@ void BenchmarkSuite::run_kernelsize() {
     for (int i = 0; i < NUM_STATISTICAL_IMAGES; ++i) {
       cv::Mat image = getOrGenerateImage(w, h, "_img" + std::to_string(i));
       for (const auto &test : current_tests) {
-        // Shared memory can be used here because the block size is always 16x16
         auto result =
             BenchmarkRunner::run(image, test, blockDim, use_shared_mem_);
         accumulated_results[test.name].avg_cpu_time += result.avg_cpu_time;
@@ -361,4 +363,91 @@ void BenchmarkSuite::run_kernelsize() {
   csv.close();
   std::cout << "\nKernel size benchmark data saved to "
                "'output/benchmark_kernelsize.csv'\n";
+}
+void BenchmarkSuite::run_visual_test() {
+  std::cout << "\n--- Running Visual Kernel Output Test ---\n";
+
+  std::string input_dir = "img/1920x1080";
+  std::string output_dir = "output_images";
+  std::filesystem::create_directories(output_dir);
+
+  dim3 blockDim(16, 16);
+
+  // --- Create PrewittY kernel specifically for the combined gradient test ---
+  auto prewittY_data = Kernels::PrewittY();
+  Test prewittY_test = {"PrewittY",
+                        cv::Mat(3, 3, CV_32F, prewittY_data.data())};
+
+  for (const auto &entry : std::filesystem::directory_iterator(input_dir)) {
+    if (entry.is_regular_file()) {
+      std::string input_path = entry.path().string();
+      std::string filename = entry.path().stem().string();
+
+      std::cout << "Processing image: " << input_path << std::endl;
+      cv::Mat image = cv::imread(input_path, cv::IMREAD_COLOR);
+      if (image.empty()) {
+        std::cerr << "Failed to read image: " << input_path << "\n";
+        continue;
+      }
+
+      cv::Mat grayscale_image;
+      cv::cvtColor(image, grayscale_image, cv::COLOR_BGR2GRAY);
+
+      for (const auto &test : tests_) {
+        std::string out_name =
+            output_dir + "/" + filename + "_" + test.name + ".png";
+        cv::Mat output_vis;
+
+        // --- SPECIAL CASE FOR PREWITT GRADIENT MAGNITUDE ---
+        if (test.name.find("Prewitt") != std::string::npos) {
+          std::cout << "  (Visualizing '" << test.name
+                    << "' as Combined Gradient Magnitude)" << std::endl;
+
+          GpuConvolution gpu_conv_x(test.kern, use_shared_mem_);
+          cv::Mat gx_float = gpu_conv_x.apply(grayscale_image, blockDim);
+
+          GpuConvolution gpu_conv_y(prewittY_test.kern, use_shared_mem_);
+          cv::Mat gy_float = gpu_conv_y.apply(grayscale_image, blockDim);
+
+          cv::Mat magnitude;
+          cv::magnitude(gx_float, gy_float,
+                        magnitude); // Simpler way to do sqrt(gx^2 + gy^2)
+
+          // Normalize the magnitude to the full 0-255 range and then convert.
+          // This is more robust than a direct convertScaleAbs.
+          cv::normalize(magnitude, output_vis, 0, 255, cv::NORM_MINMAX, CV_8U);
+
+          out_name = output_dir + "/" + filename + "_Prewitt_Magnitude.png";
+
+        } else { // --- UNIFIED, ROBUST STRATEGY FOR ALL OTHER FILTERS ---
+
+          cv::Mat imageToProcess;
+          // LoG also works best on grayscale
+          if (test.name.find("LoG") != std::string::npos) {
+            imageToProcess = grayscale_image;
+          } else {
+            imageToProcess = image; // Use color for Gaussian, Sharpen, etc.
+          }
+
+          GpuConvolution gpu_conv(test.kern, use_shared_mem_);
+          cv::Mat output_float = gpu_conv.apply(imageToProcess, blockDim);
+
+          std::cout << "  (Visualizing '" << test.name
+                    << "' with robust normalization)" << std::endl;
+
+          // This is the universal "make it visible" function. It will find the
+          // min and max values in the float image (e.g., -150 to 200) and
+          // stretch that range linearly to fit into 0-255. This works for
+          // blurs, sharpening, and LoG.
+          cv::normalize(output_float, output_vis, 0, 255, cv::NORM_MINMAX,
+                        CV_8U);
+        }
+
+        cv::imwrite(out_name, output_vis);
+        std::cout << "  Saved: " << out_name << "\n";
+      }
+    }
+  }
+  std::cout << "\nVisual test complete. Output saved to: " << output_dir
+            << "\n";
 }

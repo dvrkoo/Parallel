@@ -50,10 +50,11 @@ private:
   void run_throughput();
   void run_blocksize();
   void run_kernelsize();
+  void run_visual_test();
 
   std::string mode_;
   bool use_shared_mem_ = false;
   std::vector<Test> tests_;
 };
 
-#endif // BENCHMARK_SUITE_H
+#endif
