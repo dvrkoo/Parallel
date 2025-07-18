@@ -1,5 +1,5 @@
 #include "ParallelKMeans.h"
-#include <algorithm> // For std::copy
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
@@ -19,7 +19,6 @@ void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
   // Resize the member variable to hold assignments for the current dataset
   assignments_.assign(n_samples, -1); // Initialize all assignments to -1
 
-  // --- OPTIMIZATION 1: Flatten input data for cache-friendly access ---
   std::vector<double> data_flat(n_samples * n_features_);
 #pragma omp parallel for
   for (size_t i = 0; i < n_samples; ++i) {
@@ -39,9 +38,6 @@ void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
     std::copy(sample_start, sample_start + n_features_, centroid_start);
   }
 
-  // **CHANGE**: Removed the local `std::vector<int> labels(n_samples);`
-  // We will now use the member variable `assignments_`.
-
   for (int iter = 0; iter < max_iters_; ++iter) {
     // ==== Assignment step (Parallel) ====
 #pragma omp parallel for
@@ -57,7 +53,6 @@ void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
           best_label = c;
         }
       }
-      // **CHANGE**: Store the result in the member variable
       assignments_[i] = best_label;
     }
 
@@ -73,7 +68,6 @@ void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
 #pragma omp parallel for reduction(+ : new_centroids_ptr[ : k_ * n_features_]) \
     reduction(+ : counts_ptr[ : k_])
     for (size_t i = 0; i < n_samples; ++i) {
-      // **CHANGE**: Read from the member variable
       int cluster = assignments_[i];
       if (cluster != -1) {
         counts_ptr[cluster]++;
@@ -101,8 +95,6 @@ void ParallelKMeans::fit(const std::vector<std::vector<double>> &data) {
     }
   }
 }
-
-// ========= NO CHANGES NEEDED FOR THE METHODS BELOW =========
 
 int ParallelKMeans::predict(const std::vector<double> &point) const {
   return closest_centroid(point);

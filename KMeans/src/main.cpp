@@ -127,8 +127,6 @@ int main(int argc, char **argv) {
       double seq_mean = seq_accum / runs;
 
       // Save the results (centroids and assignments) from the last sequential
-      // run. NOTE: This assumes `SequentialKMeans` has `get_centroids()` and
-      // `get_assignments()` methods.
       {
         std::stringstream ss_centroids, ss_assignments;
         ss_centroids << "results/plots/centroids_seq_n" << n_samples << "_k"
@@ -154,8 +152,6 @@ int main(int argc, char **argv) {
         double speedup = seq_mean / par_mean;
 
         // Save the results from the last parallel run for this configuration.
-        // NOTE: This assumes `ParallelKMeans` has `get_centroids()` and
-        // `get_assignments()` methods.
         {
           std::stringstream ss_centroids, ss_assignments;
           ss_centroids << "results/plots/centroids_par_n" << n_samples << "_k"

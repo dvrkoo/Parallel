@@ -15,7 +15,6 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
   size_t n_samples = data.size();
   n_features_ = data[0].size();
 
-  // --- OPTIMIZATION 1: Flatten input data ---
   std::vector<double> data_flat(n_samples * n_features_);
   for (size_t i = 0; i < n_samples; ++i) {
     for (size_t j = 0; j < n_features_; ++j) {
@@ -86,7 +85,7 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
     }
   }
 
-  // **CHANGE**: After the loop, run the assignment step one final time to
+  // after the loop, run the assignment step one final time to
   // ensure the assignments correspond to the *final* centroids.
   assignments_.resize(n_samples);
   for (size_t i = 0; i < n_samples; ++i) {
@@ -105,8 +104,6 @@ void SequentialKMeans::fit(const std::vector<std::vector<double>> &data) {
     assignments_[i] = best_label;
   }
 }
-
-// ========= NO CHANGES NEEDED FOR THE METHODS BELOW =========
 
 int SequentialKMeans::predict(const std::vector<double> &point) const {
   return closest_centroid(point);

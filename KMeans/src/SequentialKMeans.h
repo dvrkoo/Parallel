@@ -21,7 +21,6 @@ public:
   // Get the final cluster centroids (already exists)
   std::vector<std::vector<double>> get_centroids() const;
 
-  // **NEW**: Get the final assignments for each data point
   const std::vector<int> &get_assignments() const { return assignments_; }
 
 private:
@@ -33,7 +32,6 @@ private:
   // Internal state
   size_t n_features_;
   std::vector<double> centroids_; // Flat vector for centroids
-  // **NEW**: Member variable to store cluster assignments
   std::vector<int> assignments_;
 
   // Helper methods (already exist)
