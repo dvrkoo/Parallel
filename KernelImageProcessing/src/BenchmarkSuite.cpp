@@ -107,6 +107,8 @@ void BenchmarkSuite::parse_args(int argc, char **argv) {
   for (int i = 0; i < argc; ++i) {
     if (strcmp(argv[i], "--shared") == 0) {
       use_shared_mem_ = true;
+    } else if (strcmp(argv[i], "--tuned") == 0) {
+      use_tuned_params_ = true;
     } else {
       filtered_argv.push_back(argv[i]);
     }
@@ -114,6 +116,9 @@ void BenchmarkSuite::parse_args(int argc, char **argv) {
 
   if (use_shared_mem_) {
     std::cout << ">> OPTIMIZATION: Shared Memory Kernel ENABLED <<\n\n";
+  }
+  if (use_tuned_params_) {
+    std::cout << ">> OPTIMIZATION: Tuned Parameters ENABLED <<\n\n";
   }
 
   if (filtered_argv.size() < 2) {
@@ -163,9 +168,14 @@ void BenchmarkSuite::run_throughput() {
   std::cout << "\n--- Running Throughput Benchmark ---\n";
   std::string filename = "output/";
   if (use_shared_mem_) {
-    filename += "shared_benchmark_throughput.csv";
+    filename += "shared_";
   } else {
-    filename += "stock_benchmark_throughput.csv";
+    filename += "stock_";
+  }
+  if (use_tuned_params_) {
+    filename += "tuned_benchmark_throughput.csv";
+  } else {
+    filename += "benchmark_throughput.csv";
   }
   std::ofstream csv(filename);
   csv << "Resolution,Kernel,AvgCPUTime,AvgGPUTime,Speedup,Optimization\n";
@@ -176,8 +186,9 @@ void BenchmarkSuite::run_throughput() {
       {"Gauss7x7", dim3(32, 16)},
       {"LoG5x5", dim3(16, 8)},
       {"Sharpen3x3", dim3(16, 16)}};
+  const dim3 default_block_dim(16, 16);
 
-  std::vector<int> sizes = {256, 512, 1024, 1920, 2560, 3840, 4096};
+  std::vector<int> sizes = {512, 1024, 1920, 2560, 3840, 4096};
 
   for (int size : sizes) {
     std::cout << "--- Benchmarking " << size << "x" << size << " Images ---"
@@ -188,7 +199,12 @@ void BenchmarkSuite::run_throughput() {
       cv::Mat image =
           getOrGenerateImage(size, size, "_img" + std::to_string(i));
       for (const auto &test : tests_) {
-        dim3 block_dim = optimal_block_sizes[test.name];
+        dim3 block_dim;
+        if (use_tuned_params_) {
+          block_dim = optimal_block_sizes[test.name];
+        } else {
+          block_dim = default_block_dim; // Use a default block size
+        }
         auto result =
             BenchmarkRunner::run(image, test, block_dim, use_shared_mem_);
         accumulated_results[test.name].avg_cpu_time += result.avg_cpu_time;

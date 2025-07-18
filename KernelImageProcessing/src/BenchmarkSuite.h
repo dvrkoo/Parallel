@@ -54,6 +54,7 @@ private:
 
   std::string mode_;
   bool use_shared_mem_ = false;
+  bool use_tuned_params_ = false;
   std::vector<Test> tests_;
 };
 
