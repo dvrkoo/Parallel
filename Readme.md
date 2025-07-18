@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This repository contains a collection of C++ projects focused on implementing and analyzing parallel algorithms. Each project explores a different computational problem and compares the performance of a sequential implementation against a parallel version using OpenMP.
+This repository contains a collection of C++ projects focused on implementing and analyzing parallel algorithms. Each project explores a different computational problem and compares the performance of a sequential implementation against a parallel version using OpenMP for the KMeans and using Cudafor the KernelImageProcessing.
 
 ## Repository Content
 
@@ -12,13 +12,13 @@ This repository contains two main exercises:
 
 - **Folder:** `KMeans/`
 - **Description:** An implementation of the K-Means clustering algorithm. This project analyzes the performance trade-offs between sequential and parallel execution based on dataset size and the number of clusters.
-- **[➡️ Go to the K-Means README for full details](./KMeans/README.md)**
+- **[➡️ Go to the K-Means README for full details](./KMeans/Readme.md)**
 
 ### 2. Kernel-Based Image Processing
 
 - **Folder:** `KernelImageProcessing/`
 - **Description:** Applies common image processing filters (convolution kernels) like blur and edge detection. This project demonstrates the speedup achieved by parallelizing per-pixel operations on large images.
-- **[➡️ Go to the Image Processing README for full details](./KernelImageProcessing/README.md)**
+- **[➡️ Go to the Image Processing README for full details](./KernelImageProcessing/Readme.md)**
 
 ## Getting Started
 
@@ -39,5 +39,5 @@ To build and run an exercise:
 ## Core Technologies
 
 - Language: C++ (17 or later)
-- Parallelism: OpenMP
+- Parallelism: OpenMP, CUDA
 - Build Systems: Cmake
