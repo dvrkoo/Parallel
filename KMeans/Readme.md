@@ -20,7 +20,7 @@ The findings demonstrate the trade-offs between sequential and parallel executio
 
 The parallel implementation shows excellent scalability on large datasets. The plot below illustrates the speedup achieved on a dataset with 10 million points as the number of threads increases.
 
-![Speedup on Large Dataset](plots/speedup_fixed_k_50.png)
+![Speedup on Large Dataset](plots/speedup_k_50.png)
 _Caption: Speedup vs. number of threads for n=10,000,000 with varying k. The tests were run on a Ryzen 5 3600 (6-core, 12-thread) CPU._
 
 ---
