@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This repository contains a collection of C++ projects focused on implementing and analyzing parallel algorithms. Each project explores a different computational problem and compares the performance of a sequential implementation against a parallel version using OpenMP for the KMeans and using Cudafor the KernelImageProcessing.
+This repository contains a collection of C++ projects focused on implementing and analyzing parallel algorithms. Each project explores a different computational problem and compares the performance of a sequential implementation against a parallel version using OpenMP for the KMeans and using Cuda for the KernelImageProcessing.
 
 ## Repository Content
 
