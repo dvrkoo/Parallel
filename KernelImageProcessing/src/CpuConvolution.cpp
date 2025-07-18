@@ -8,51 +8,40 @@ CpuConvolution::CpuConvolution(const cv::Mat &kernel)
 }
 
 cv::Mat CpuConvolution::apply(const cv::Mat &input) const {
-  // Output should be floating point to preserve negative values
+  // Output should be floating point to preserve negative/out-of-range values.
   cv::Mat output = cv::Mat::zeros(input.size(), CV_32FC(input.channels()));
   int channels = input.channels();
 
-  if (channels == 1) {
-    for (int y = 0; y < input.rows; ++y) {
-      for (int x = 0; x < input.cols; ++x) {
-        float sum = 0.0f;
-        for (int m = 0; m < kRows_; ++m) {
-          int yy = y + m - kCenterY_;
-          if (yy < 0 || yy >= input.rows)
+  // Iterate over each pixel in the output image.
+  for (int y = 0; y < input.rows; ++y) {
+    for (int x = 0; x < input.cols; ++x) {
+
+      // --- Unified Kernel Loop ---
+      // This inner block calculates the convolution for one (x,y) location.
+      for (int m = 0; m < kRows_; ++m) {
+        int yy = y + m - kCenterY_;
+        // Boundary check for rows
+        if (yy < 0 || yy >= input.rows) {
+          continue;
+        }
+
+        for (int n = 0; n < kCols_; ++n) {
+          int xx = x + n - kCenterX_;
+          // Boundary check for columns
+          if (xx < 0 || xx >= input.cols) {
             continue;
-          for (int n = 0; n < kCols_; ++n) {
-            int xx = x + n - kCenterX_;
-            if (xx < 0 || xx >= input.cols)
-              continue;
-            sum += input.at<uchar>(yy, xx) * kernel_.at<float>(m, n);
+          }
+
+          float k_val = kernel_.at<float>(m, n);
+          for (int c = 0; c < channels; ++c) {
+            const uchar *p_in = input.data + yy * input.step + xx * channels;
+            float *p_out =
+                (float *)(output.data + y * output.step) + x * channels;
+            p_out[c] += p_in[c] * k_val;
           }
         }
-        output.at<float>(y, x) = sum;
-      }
-    }
-  } else if (channels == 3) {
-    for (int y = 0; y < input.rows; ++y) {
-      for (int x = 0; x < input.cols; ++x) {
-        cv::Vec3f sum(0, 0, 0);
-        for (int m = 0; m < kRows_; ++m) {
-          int yy = y + m - kCenterY_;
-          if (yy < 0 || yy >= input.rows)
-            continue;
-          for (int n = 0; n < kCols_; ++n) {
-            int xx = x + n - kCenterX_;
-            if (xx < 0 || xx >= input.cols)
-              continue;
-            cv::Vec3b pixel = input.at<cv::Vec3b>(yy, xx);
-            float kval = kernel_.at<float>(m, n);
-            sum[0] += pixel[0] * kval;
-            sum[1] += pixel[1] * kval;
-            sum[2] += pixel[2] * kval;
-          }
-        }
-        output.at<cv::Vec3f>(y, x) = sum;
       }
     }
   }
-
   return output;
 }
