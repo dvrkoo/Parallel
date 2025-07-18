@@ -20,7 +20,7 @@ The findings demonstrate the trade-offs between sequential and parallel executio
 
 The parallel implementation shows excellent scalability on large datasets. The plot below illustrates the speedup achieved on a dataset with 10 million points as the number of threads increases.
 
-![Speedup on Large Dataset](images/speedup_fixed_n_10000000.png)
+![Speedup on Large Dataset](plots/speedup_fixed_n_10000000.png)
 _Caption: Speedup vs. number of threads for n=10,000,000 with varying k. The tests were run on a Ryzen 5 3600 (6-core, 12-thread) CPU._
 
 ---
@@ -40,8 +40,8 @@ To build and run this project, you will need:
 1.  **Clone the repository:**
 
     ```sh
-    git clone https://github.com/your-username/your-repo-name.git
-    cd your-repo-name
+    git clone https://github.com/dvrkoo/Parallel.git
+    cd Parallel/KMeans
     ```
 
 2.  **Create a build directory:** It's best practice to build the project out-of-source.
