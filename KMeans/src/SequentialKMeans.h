@@ -41,4 +41,4 @@ private:
   bool has_converged(const std::vector<double> &old_centroids_flat) const;
 };
 
-#endif // SEQUENTIAL_KMEANS_H
+#endif
