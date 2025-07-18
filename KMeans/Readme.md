@@ -110,15 +110,3 @@ The table below contrasts the speedup for a high cluster count ($k=50$) on a sma
 |    6    |      3.57x      |         6.07x          |
 |    8    |      2.99x      |         5.84x          |
 |   12    |      3.15x      |         7.49x          |
-
-## Project Structure
-
-.
-├── CMakeLists.txt # Build script for CMake
-├── README.md # This file
-├── images/ # Folder for plots and diagrams
-│ └── speedup_fixed_n_10000000.png
-├── include/ # Header files
-│ └── kmeans.h
-└── src/ # Source files
-└── kmeans.cpp

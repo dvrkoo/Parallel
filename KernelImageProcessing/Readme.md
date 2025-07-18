@@ -1,5 +1,9 @@
 # CUDA Image Convolution Benchmark Suite
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Language](https://img.shields.io/badge/language-C%2B%2B-blue.svg)](https://isocpp.org/)
+[![Build with](https://img.shields.io/badge/build%20with-CMake-green.svg)](https://cmake.org/)
+
 This repository contains a C++ and CUDA-based benchmark suite for analyzing the performance of 2D image convolution on the CPU versus the GPU. The project demonstrates a systematic approach to GPU optimization, starting from a naive parallel implementation and progressing to a highly-tuned kernel using shared memory and empirically determined launch parameters.
 
 The suite is designed to be a comprehensive tool for performance analysis, capable of generating reproducible test data, running multiple benchmark scenarios, and producing clear, plottable CSV results.
